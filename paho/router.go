@@ -68,9 +68,10 @@ func (r *StandardRouter) UnregisterHandler(topic string) {
 // Route is the library provided StandardRouter's implementation
 // of the required interface function()
 func (r *StandardRouter) Route(pb *packets.Publish) {
-	r.debug.Println("routing message for:", pb.Topic)
+	r.debug.Println("routing message for: TRY LOCK", pb.Topic)
 	r.RLock()
 	defer r.RUnlock()
+	r.debug.Println("routing message for:   GOT LOCK", pb.Topic)
 
 	m := PublishFromPacketPublish(pb)
 
@@ -90,14 +91,25 @@ func (r *StandardRouter) Route(pb *packets.Publish) {
 		topic = m.Topic
 	}
 
+	r.debug.Printf(" 	> RAMP routing SUBSCRIPTIONS ")
 	for route, handlers := range r.subscriptions {
+		r.debug.Printf(" 	> RAMP routing LOOP SUBSCRIPTIONS route:(%v)  handlers:(%v)\n", route, handlers)
 		if match(route, topic) {
-			r.debug.Println("found handler for:", route)
+			r.debug.Printf(" 	>> RAMP routing MATCH ")
+			r.debug.Println(" 	>> found handler for:", route)
+			i := 0
+			r.debug.Printf(" 	> RAMP routing HANDLERS (%v) ", handlers)
 			for _, handler := range handlers {
+				r.debug.Printf(" 	>> RAMP client.go RUN handler(%v)-(%v) for:(%v) pktid:(%v) (%v) qos:(%v) payload:(%v)-(%v)", i, handler, route, m.PacketID, m.Topic, m.QoS, len(m.Payload), string(m.Payload))
 				handler(m)
+				r.debug.Printf(" 	>> RAMP client.go END RUN handler(%v)-(%v)\n", i, handler)
+				i++
 			}
+		} else {
+			r.debug.Println(" 	> RAMP routing !MATCH ")
 		}
 	}
+	r.debug.Println(" 	> RAMP routing END ")
 }
 
 // SetDebugLogger sets the logger l to be used for printing debug

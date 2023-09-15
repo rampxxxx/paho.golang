@@ -74,6 +74,7 @@ type (
 		raCtx          *CPContext
 		stop           chan struct{}
 		publishPackets chan *packets.Publish
+		//ramp           chan string
 		acksTracker    acksTracker
 		workers        sync.WaitGroup
 		serverProps    CommsProperties
@@ -184,7 +185,9 @@ func (c *Client) Connect(ctx context.Context, cp *Connect) (*Connack, error) {
 	if cp.Properties != nil && cp.Properties.ReceiveMaximum != nil {
 		publishPacketsSize = *cp.Properties.ReceiveMaximum
 	}
+	c.debug.Printf("RAMP publishPacketsSize SIZE %d ", publishPacketsSize)
 	c.publishPackets = make(chan *packets.Publish, publishPacketsSize)
+	//c.ramp = make(chan string, 10)
 
 	keepalive := cp.KeepAlive
 	c.ClientID = cp.ClientID
@@ -219,7 +222,7 @@ func (c *Client) Connect(ctx context.Context, cp *Connect) (*Connack, error) {
 
 	c.debug.Println("waiting for CONNACK/AUTH")
 	var (
-		caPacket    *packets.Connack
+		caPacket *packets.Connack
 		// We use buffered channels to prevent goroutine leak. The Details are below.
 		// - c.expectConnack waits to send data to caPacketCh or caPacketErr.
 		// - If connCtx is cancelled (done) before c.expectConnack finishes to send data to either "unbuffered" channel,
@@ -380,22 +383,30 @@ func (c *Client) routePublishPackets() {
 	for {
 		select {
 		case <-c.stop:
+			c.debug.Printf("RAMP routePublishPackets CHANNEL STOP ")
 			return
+		//case hola := <-c.ramp:
+		//	c.debug.Printf("RAMP routePublishPackets CHANNEL ramp :(%v)\n", hola, len(c.ramp))
 		case pb, open := <-c.publishPackets:
+			c.debug.Printf("RAMP routePublishPackets CHANNEL:(%v) receive", len(c.publishPackets))
 			if !open {
+				c.debug.Printf("routePublishPackets CHANNEL close , exit #1")
 				return
 			}
 
 			if !c.ClientConfig.EnableManualAcknowledgment {
+				c.debug.Printf("RAMP routePublishPackets !ManualAck continue , continue #2")
 				c.Router.Route(pb)
 				c.ack(pb)
 				continue
 			}
 
 			if pb.QoS != 0 {
+				c.debug.Printf("RAMP routePublishPackets ACK Qos (%v)\n", pb.QoS)
 				c.acksTracker.add(pb)
 			}
 
+			c.debug.Printf("RAMP routePublishPackets ROUTE \n")
 			c.Router.Route(pb)
 		}
 	}
@@ -451,7 +462,10 @@ func (c *Client) incoming() {
 					c.mu.Unlock()
 					return
 				default:
+					c.debug.Printf("RAMP received QoS%d PUBLISH #1 send to channel:(%v), ramp:(%v)", pb.QoS, len(c.publishPackets))
 					c.publishPackets <- pb
+					//c.ramp <- "Hola majete"
+					c.debug.Printf("RAMP received QoS%d PUBLISH #2 send to channel:(%v), ramp:(%v)", pb.QoS, len(c.publishPackets))
 					c.mu.Unlock()
 				}
 			case packets.PUBACK, packets.PUBCOMP, packets.SUBACK, packets.UNSUBACK:
